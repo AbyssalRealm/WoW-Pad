@@ -9,7 +9,8 @@
 --    protected things like using a bag item or selling to a vendor work.
 --    B presses the window's own close button the same way.
 --  * Y: tap = preview, hold = compare. L3 in bags: item actions. LB/RB:
---    switch window, or page the main menu / setup window / keyboard.
+--    tabs of the window (no tabs: switch window); or page the main menu /
+--    setup window / keyboard. LT/RT press: switch window.
 
 local WP = WowPad
 local Nav = { roots = {}, nodes = {}, nodeSet = {} }
@@ -42,6 +43,8 @@ local function CollectRoots()
     local f = _G["ContainerFrame" .. i]
     if f and f:IsVisible() then add(f); break end
   end
+  for _, name in ipairs(WP.BAG_WINDOWS) do add(_G[name]) end
+  for _, f in ipairs(WP.AutoWindows()) do add(f) end   -- other addons' windows
   for _, name in ipairs(UISpecialFrames) do
     local f = WP.AsFrame(_G[name])
     local n = f and f:GetName()
@@ -224,7 +227,22 @@ hl:Hide()
 
 local function CallScript(f, script)
   local fn = f and f:GetScript(script)
-  if fn then pcall(fn, f) end
+  if not fn then return end
+  -- Old-style handlers (DialogUI) read the global `this` instead of self.
+  local old = this
+  this = f
+  pcall(fn, f)
+  this = old
+end
+
+-- The tooltip a button's OnEnter filled: GameTooltip, or an addon's own
+-- (DialogUI shows quest rewards on DialogueUITooltip).
+local TIPS = { "GameTooltip", "DialogueUITooltip" }
+local function OwnedTip(n)
+  for _, name in ipairs(TIPS) do
+    local t = _G[name]
+    if n and t and t:IsShown() and t:IsOwned(n) then return t end
+  end
 end
 
 -- Is this button part of a bag window? Default bags, the bank, and bag
@@ -250,8 +268,9 @@ function Nav.FocusedItem()
   local n = Nav.cur
   if not n then return end
   local link
-  if GameTooltip:IsShown() and GameTooltip:IsOwned(n) then
-    local _, l = GameTooltip:GetItem()
+  local tip = OwnedTip(n)
+  if tip then
+    local _, l = tip:GetItem()
     link = l
   end
   if not InBags(n) then return link end
@@ -355,8 +374,9 @@ end
 -- Item comparison (like holding Shift): shown while Y is held in a menu.
 Nav.comparing = false
 local function ShowCompare()
-  if Nav.comparing and GameTooltip:IsShown() and GameTooltip_ShowCompareItem then
-    pcall(GameTooltip_ShowCompareItem, GameTooltip, 1)
+  local tip = OwnedTip(Nav.cur) or GameTooltip
+  if Nav.comparing and tip:IsShown() and GameTooltip_ShowCompareItem then
+    pcall(GameTooltip_ShowCompareItem, tip, 1)
   end
 end
 local function HideCompare()
@@ -442,6 +462,7 @@ local function WindowName(f)
   if not n then return "window" end
   if n:find("^ContainerFrame") then return "Bags" end
   if n:find("^Bagnon") then return n:lower():find("bank") and "Bank" or "Bags" end
+  if n:find("^AdiBagsContainer") then return f.isBank and "Bank" or "Bags" end
   if n:find("^StaticPopup") then return "Popup" end
   if n:find("^GroupLootFrame") then return "Loot Roll" end
   if n == "LFDDungeonReadyDialog" then return "Dungeon" end
@@ -496,11 +517,8 @@ function Nav.UpdateHints()
     -- Everything else: only what applies everywhere.
     parts = { H("A", "Select"), H("B", "Close") }
   end
-  if #Nav.roots > 1 then
-    local idx = 1
-    for i, r in ipairs(Nav.roots) do if r == root then idx = i end end
-    parts[#parts + 1] = H("LB/RB", "Swap window")
-  end
+  if #Nav.Tabs(root) > 1 then parts[#parts + 1] = H("LB/RB", "Tabs") end
+  if #Nav.roots > 1 then parts[#parts + 1] = H("LT/RT", "Swap window") end
   local flat = {}
   for i, p in ipairs(parts) do flat[i] = K:format(WP.Keys(p.key), p.text) end
   LayoutHints(parts)
@@ -588,6 +606,11 @@ function Nav.Refresh()
   for _, r in ipairs(Nav.roots) do open[r] = true end
   for r in pairs(Nav.memory) do if not open[r] then Nav.memory[r] = nil end end
   local top = Nav.roots[1]
+  -- Back from a pause (trigger released, combat over): same window as before,
+  -- unless a new one opened on top meanwhile.
+  local resume = Nav.resume
+  Nav.resume = nil
+  if resume and open[resume.root] and resume.top == top then Nav.root, lastTop = resume.root, top end
   local stillOpen = false
   for _, r in ipairs(Nav.roots) do if r == Nav.root then stillOpen = true end end
   if top ~= lastTop or not stillOpen then
@@ -677,6 +700,8 @@ nf:SetScript("OnUpdate", function(_, elapsed)
   elseif Nav.cur or hl:IsShown() or hints:IsShown() then
     -- Paused (trigger held, combat...): keep memory of windows still open.
     for r in pairs(Nav.memory) do if not r:IsVisible() then Nav.memory[r] = nil end end
+    -- Remember which window had focus (a trigger press may just have swapped it).
+    if Nav.root then Nav.resume = { root = Nav.root, top = lastTop } end
     Nav.Select(nil)
     Nav.root, lastTop = nil, nil
     Nav.UpdateHints()
@@ -789,6 +814,67 @@ function Nav.CycleRoot(step)
   Nav.Refresh()
 end
 
+-- Tab buttons along the bottom of a window (Character, Social, Spellbook,
+-- Talents, Auction House...), left to right. Hidden tabs (Pet without a pet)
+-- are left out.
+local SIDE_TABS = { SpellBookFrame = "SpellBookSkillLineTab%d" }   -- spell schools
+function Nav.Tabs(root)
+  local name = root and root.GetName and root:GetName()
+  local list = {}
+  if not name then return list end
+  -- Side tabs first where a window has them (top to bottom).
+  local side = SIDE_TABS[name]
+  if side then
+    for i = 1, 12 do
+      local t = _G[side:format(i)]
+      if type(t) ~= "table" or not t.IsVisible then break end
+      if t:IsVisible() then list[#list + 1] = t end
+    end
+    if #list > 1 then
+      table.sort(list, function(a, b) return (a:GetTop() or 0) > (b:GetTop() or 0) end)
+      return list
+    end
+    list = {}
+  end
+  for _, fmt in ipairs({ "%sTab%d", "%sTabButton%d" }) do
+    for i = 1, 12 do
+      local t = _G[fmt:format(name, i)]
+      if type(t) ~= "table" or not t.GetObjectType then break end
+      if t:GetObjectType() == "Button" and t:IsVisible() then list[#list + 1] = t end
+    end
+    if #list > 0 then break end
+  end
+  table.sort(list, function(a, b) return (a:GetLeft() or 0) < (b:GetLeft() or 0) end)
+  return list
+end
+
+-- LB/RB in a window: the tab to click next (the open tab is the window's
+-- selectedTab, else the disabled one), skipping tabs that can't be clicked,
+-- wrapping around. In a window without tabs: the next open window instead
+-- (returns nil), like LT/RT.
+function Nav.NextTab(step)
+  local root = Nav.root
+  local tabs = Nav.Tabs(root)
+  local cur
+  if root and root.selectedTab then
+    local want = (root:GetName() or "") .. "Tab" .. root.selectedTab
+    for i, t in ipairs(tabs) do if t:GetName() == want then cur = i end end
+  end
+  if not cur then   -- side tabs are check buttons: the open one is checked
+    for i, t in ipairs(tabs) do if t.GetChecked and t:GetChecked() then cur = i; break end end
+  end
+  if not cur then
+    for i, t in ipairs(tabs) do if not t:IsEnabled() then cur = i; break end end
+  end
+  if #tabs < 2 or not cur then Nav.CycleRoot(step); return nil end
+  local i = cur
+  for _ = 1, #tabs do
+    i = (i + step - 1) % #tabs + 1
+    if i == cur then return nil end
+    if tabs[i]:IsEnabled() then return tabs[i] end
+  end
+end
+
 -- Quest log, X: track / untrack the quest on the selected row (or, off the
 -- list, the quest shown on the right). Same as the log's Track button.
 function Nav.TrackQuest(n)
@@ -872,6 +958,7 @@ function Nav.BackTarget()
         if n and n:find("CloseButton$") and c:IsVisible() then close = c; break end
       end
     end
+    if not close then close = WP.FindCloseButton(root) end   -- the window's X
     if close then return close end
     -- Esc menu: B = Return to Game. Options windows: B = Cancel.
     local cancel = (name == "GameMenuFrame" and _G.GameMenuButtonContinue)
@@ -935,12 +1022,10 @@ IB("WowPadNavDestroy", function()
   if WP.OpenItemActions then WP.OpenItemActions() else Nav.Destroy() end
 end)
 -- LB/RB: pages of the main menu / setup window (channel on the keyboard),
--- else switch windows.
+-- else the window's tabs, else switch windows.
 local function Paged() return (WP.Radial and WP.Radial:IsShown() and WP.Radial)
                            or (WP.FirstTime and WP.FirstTime:IsShown() and WP.FirstTime)
                            or (WP.Keyboard and WP.Keyboard:IsShown() and WP.Keyboard) end
-IB("WowPadNavPrev",  function() local p = Paged() if p then p.Page(-1) else Nav.CycleRoot(-1) end end)
-IB("WowPadNavNext",  function() local p = Paged() if p then p.Page(1) else Nav.CycleRoot(1) end end)
 
 table.insert(WP.setupHooks, function()
   -- A / X: secure click on the selected node (left / right button).
@@ -976,6 +1061,38 @@ table.insert(WP.setupHooks, function()
   end
   Clicker("WowPadNavA")
   Clicker("WowPadNavX")
+
+  -- LB / RB: secure click on the next tab (tab buttons open Blizzard panels,
+  -- so they're clicked the way the mouse would).
+  local function Pager(name, step)
+    local b = CreateFrame("Button", name, UIParent, "SecureActionButtonTemplate")
+    b:RegisterForClicks("AnyDown")
+    b:SetAttribute("type", "click")
+    b:SetScript("PreClick", function(self)
+      local p = Paged()
+      if p then p.Page(step) end
+      if InCombatLockdown() then return end
+      self:SetAttribute("clickbutton", (not p) and Nav.NextTab(step) or nil)
+    end)
+    b:SetScript("PostClick", function(self)
+      if InCombatLockdown() or not self:GetAttribute("clickbutton") then return end
+      self:SetAttribute("clickbutton", nil)
+      Nav.Select(nil)   -- new tab: start on its default button
+      Nav.Refresh()
+    end)
+  end
+  Pager("WowPadNavPrev", -1)
+  Pager("WowPadNavNext", 1)
+
+  -- LT / RT with a window open: swap window (LT = previous, RT = next), on
+  -- the press. (The header doesn't switch sets while a window is open.)
+  if Nav.trigHooked then return end
+  Nav.trigHooked = true
+  local function Press(step)
+    if WP.ctx == "menu" and WP.set == 0 and not InCombatLockdown() then Nav.CycleRoot(step) end
+  end
+  WowPadTrigLOn:HookScript("PreClick", function() Press(-1) end)
+  WowPadTrigROn:HookScript("PreClick", function() Press(1) end)
 
   -- B: secure click on the window's close / cancel button.
   local back = CreateFrame("Button", "WowPadNavB", UIParent, "SecureActionButtonTemplate")

@@ -168,7 +168,7 @@ local function SetupSecure()
       local lite = self:GetAttribute("lite") == 1
       local l, r = self:GetAttribute("lt") == 1, self:GetAttribute("rt") == 1
       local vs = 0
-      if self:GetAttribute("mode") == "controller" then
+      if self:GetAttribute("mode") == "controller" and self:GetAttribute("ctx") ~= "menu" then
         if l and r then vs = 3 elseif l then vs = 1 elseif r then vs = 2 end
       end
       if vs == 0 and self:GetAttribute("editing") == 1 then vs = self:GetAttribute("liteview") or 0 end
@@ -184,6 +184,9 @@ local function SetupSecure()
     end
     local lt = self:GetAttribute("lt") == 1
     local rt = self:GetAttribute("rt") == 1
+    -- Window open (out of combat): the triggers swap windows instead of sets.
+    -- Combat always switches back to "action", so they work as sets there.
+    if self:GetAttribute("ctx") == "menu" then lt, rt = false, false end
     local set = 0
     if lt and rt then set = 3 elseif lt then set = 1 elseif rt then set = 2 end
     for i = 1, self:GetAttribute("nstatic") do
@@ -408,6 +411,11 @@ end
 WP.EXTRA_WINDOWS = { "DGossipFrame", "DQuestFrame", "ImmersionFrame", "OpenMailFrame", "GameMenuFrame", "VideoOptionsFrame",
                      "AudioOptionsFrame", "InterfaceOptionsFrame", "KeyBindingFrame" }
 
+-- Bag addons whose windows aren't panels or special frames either. AdiBags:
+-- AdiBagsContainer<n>, numbered in the order they were first opened (bags or
+-- bank). Treated like the default bags: after the other windows in priority.
+WP.BAG_WINDOWS = { "AdiBagsContainer1", "AdiBagsContainer2", "AdiBagsContainer3" }
+
 -- A window some addon keeps "open" but out of sight (New Era cloaks Blizzard's
 -- profession window: alpha 0, moved off-screen, still shown). It isn't a
 -- window the player can use, so WowPad ignores it.
@@ -423,6 +431,138 @@ function WP.Cloaked(f)
   return r * s <= 0 or t * s <= 0 or l * s >= W or b * s >= H
 end
 local function Open(f) return f and f:IsShown() and not WP.Cloaked(f) end
+
+---------------------------------------------------------------------------
+-- Any other addon's window, found by its looks: a frame on UIParent that is
+-- open, takes the mouse, is window-sized and has a close button (an X).
+-- Frames already showing when you log in (meters, bars, trackers) only count
+-- once they've been closed and opened again. /wp window add / ignore override
+-- this per frame (saved by frame name).
+---------------------------------------------------------------------------
+local function WindowLists()
+  WowPadDB.windows = WowPadDB.windows or { add = {}, ignore = {} }
+  return WowPadDB.windows
+end
+
+local CLOSE_TEX = "ui%-panel%-minimizebutton"   -- UIPanelCloseButton's X
+local function IsCloseButton(b)
+  if not (b.GetObjectType and b:GetObjectType() == "Button" and b:IsShown()) then return false end
+  local n = b:GetName()
+  if n and (n:find("CloseButton$") or n:find("Close$")) then return true end
+  local t = b.GetNormalTexture and b:GetNormalTexture()
+  local path = t and t:GetTexture()
+  return type(path) == "string" and path:lower():find(CLOSE_TEX) ~= nil
+end
+
+-- The window's X: its CloseButton field, or a button named *Close(Button) or
+-- drawn with the standard X, up to two levels down.
+function WP.FindCloseButton(f, depth)
+  depth = depth or 0
+  local cb = rawget(f, "CloseButton") or rawget(f, "closeButton")
+  if type(cb) == "table" and cb.IsShown and cb:IsShown() then return cb end
+  local kids = { f:GetChildren() }
+  for _, c in ipairs(kids) do
+    if IsCloseButton(c) then return c end
+  end
+  if depth < 2 then
+    for _, c in ipairs(kids) do
+      if c:IsShown() then
+        local b = WP.FindCloseButton(c, depth + 1)
+        if b then return b end
+      end
+    end
+  end
+end
+
+local function LooksLikeWindow(f)
+  if not (f:IsVisible() and f.IsMouseEnabled and f:IsMouseEnabled()) then return false end
+  local w, h = f:GetWidth(), f:GetHeight()
+  if not (w and h and w >= 120 and h >= 80) or WP.Cloaked(f) then return false end
+  return WP.FindCloseButton(f) ~= nil
+end
+
+local auto, lastScan, settleAt = {}, -1, nil
+local hud = setmetatable({}, { __mode = "k" })   -- open since login: not a window (yet)
+local function Scan()
+  wipe(auto)
+  local lists = WindowLists()
+  local settled = settleAt and GetTime() >= settleAt
+  for _, f in ipairs({ UIParent:GetChildren() }) do
+    local n = f:GetName()
+    if not (n and (n:find("^WowPad") or lists.ignore[n] or lists.add[n])) then
+      if LooksLikeWindow(f) then
+        if not settled then hud[f] = true elseif not hud[f] then auto[#auto + 1] = f end
+      elseif hud[f] and not f:IsVisible() then
+        hud[f] = nil
+      end
+    end
+  end
+  for n in pairs(lists.add) do
+    local f = WP.AsFrame(_G[n])
+    if f and f:IsVisible() and not WP.Cloaked(f) then auto[#auto + 1] = f end
+  end
+end
+do
+  local e = CreateFrame("Frame")
+  e:RegisterEvent("PLAYER_ENTERING_WORLD")
+  e:SetScript("OnEvent", function() settleAt = GetTime() + 3 end)
+end
+
+-- Open windows found this way (rescanned at most four times a second).
+function WP.AutoWindows()
+  if not WowPadDB then return auto end
+  local now = GetTime()
+  if now - lastScan >= 0.25 then lastScan = now; Scan() end
+  return auto
+end
+
+-- The window a frame belongs to: its highest named parent below UIParent.
+local function NamedWindow(f)
+  local best
+  while f and f ~= UIParent and f ~= WorldFrame do
+    if f:GetName() then best = f end
+    f = f.GetParent and f:GetParent()
+  end
+  return best
+end
+
+-- /wp window add | ignore | reset | list
+function WP.WindowCommand(sub)
+  local lists = WindowLists()
+  sub = (sub or ""):lower()
+  if sub == "add" or sub == "ignore" then
+    local focus = GetMouseFocus()
+    local f = (focus and focus ~= WorldFrame) and NamedWindow(focus)
+    if not f and sub == "ignore" and WP.Nav then f = WP.Nav.root end
+    if not f then
+      Print(sub == "add" and "Point the mouse at the window first, then type /wp window add."
+                         or "Point the mouse at it (or select something in it) first, then type /wp window ignore.")
+      return
+    end
+    local n = f:GetName()
+    if not n then Print("That frame has no name, so WowPad can't remember it."); return end
+    if sub == "add" then
+      lists.add[n], lists.ignore[n] = true, nil
+      hud[f] = nil
+      Print(("|cffffff00%s|r now counts as a window."):format(n))
+    else
+      lists.ignore[n], lists.add[n] = true, nil
+      Print(("|cffffff00%s|r is no longer treated as a window."):format(n))
+    end
+    lastScan = -1
+  elseif sub == "reset" then
+    wipe(lists.add); wipe(lists.ignore)
+    lastScan = -1
+    Print("Window add / ignore lists cleared.")
+  else
+    local a, i = {}, {}
+    for n in pairs(lists.add) do a[#a + 1] = n end
+    for n in pairs(lists.ignore) do i[#i + 1] = n end
+    Print("Added: " .. (#a > 0 and table.concat(a, ", ") or "none")
+          .. ".  Ignored: " .. (#i > 0 and table.concat(i, ", ") or "none") .. ".")
+    Print("/wp window add | ignore (mouse over the window) | reset")
+  end
+end
 
 local function AnyWindowOpen()
   if WP.Bar and WP.Bar.editing then return true end
@@ -442,6 +582,12 @@ local function AnyWindowOpen()
   for i = 1, NUM_CONTAINER_FRAMES or 13 do
     local f = _G["ContainerFrame" .. i]
     if f and f:IsShown() then return true end
+  end
+  for _, name in ipairs(WP.BAG_WINDOWS) do
+    if Open(_G[name]) then return true end
+  end
+  for _, f in ipairs(WP.AutoWindows()) do
+    if Open(f) then return true end
   end
   for _, name in ipairs(UISpecialFrames) do
     local f = WP.AsFrame(_G[name])
@@ -727,11 +873,13 @@ SlashCmdList.WOWPAD = function(msg)
   elseif msg == "sens" then
     local v = tonumber(select(2, (rest or ""):match("^%s*(%S*)%s*(%S*)")))
     if v and WP.SetCamSens then WP.SetCamSens(v) else Print("Usage: /wp sens 0.5  (camera, 0.05-2, then /reload)") end
+  elseif msg == "window" then
+    WP.WindowCommand(select(2, (rest or ""):match("^%s*(%S*)%s*(%S*)")))
   elseif msg == "status" then         -- debug aid: status line on / off
     WowPadDB.showStatus = not WowPadDB.showStatus
     WP.UpdateStatus()
   else
     Print(("mode=%s set=%s context=%s pointer=%s"):format(WP.mode, tostring(WP.set), tostring(WP.context), tostring(WP.pointer)))
-    Print("/wp firsttime | options | sens <0.05-2> | edit | bar | blizz | crosshair | scale <0.4-1.6> | xattack | interact [KEY] | status | debug")
+    Print("/wp firsttime | options | sens <0.05-2> | edit | bar | blizz | crosshair | scale <0.4-1.6> | xattack | interact [KEY] | window add|ignore|reset | status | debug")
   end
 end

@@ -8,18 +8,15 @@ local WP = WowPad
 
 -- Newest first. Shown on the last page.
 local WHATS_NEW = {
+  { "1.4.2", {
+    "{LB} / {RB} switch tabs, {LT} / {RT} switch windows",
+    "Other addons' windows work automatically: /wp window add / ignore to fix a miss",
+    "Works with AdiBags; DialogUI quest rewards show their tooltip",
+  } },
   { "1.4.1", {
     "Xbox or PlayStation button icons (Options > Buttons, or page 1 here)",
     "New radial look; move / resize both radials in Edit bar layout",
     "Queued abilities (Heroic Strike, Auto Shot) glow on the bar; rounded selection boxes",
-  } },
-  { "1.4.0", {
-    "On-screen keyboard: {Back} + {A} for chat, or {A} on a text field (search, mail)",
-    "Healer mode (Options > Buttons): ally bumper + right stick picks party members",
-    "Utility ring: 8 spells / items on one button (Options > Bars)",
-    "Ground-targeted spells: {A} or the same button places them, {B} cancels",
-    "Quest log: {X} tracks a quest.  {B} leaves the Esc menu and option windows",
-    "Works with Immersion; mailbox and auction house work with the D-pad",
   } },
 }  -- newest first; keep about two versions so the page fits the window
 
@@ -298,7 +295,7 @@ local PAGES = {
       Y:format("R3") .. ": pointer mode ({RT} / {LT} click).  " .. Y:format("L3") .. ": autorun.",
       " ",
       "With a window open (out of combat) the D-pad moves a gold selection: {A} click,",
-      "{X} right-click, {Y} preview / compare, {B} close, {LB} / {RB} switch windows.",
+      "{X} right-click, {Y} preview / compare, {B} close, {LB} / {RB} tabs, {LT} / {RT} windows.",
       " ",
       "Touching the mouse or keyboard switches to normal control at once; the pad switches back.",
       "Full button list: {Start} > page 2 > " .. Y:format("Controller") .. ".",
@@ -350,6 +347,8 @@ local COMMANDS = {
   { "/wp edit",         "edit bar layout" },
   { "/wp blizz",        "show / hide Blizzard's action bars" },
   { "/wp bar",          "controller bar always, or only in controller mode" },
+  { "/wp window add",   "mouse over an addon window WowPad misses: use it" },
+  { "/wp window ignore", "mouse over something WowPad wrongly treats as a window" },
   { "/wp firsttime",    "this window" },
 }
 local cmdCol = F:CreateFontString(nil, "OVERLAY", "GameFontNormal")

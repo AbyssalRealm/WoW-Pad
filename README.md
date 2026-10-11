@@ -1,4 +1,4 @@
-# <h1 align="center">WowPad 1.4.1</h1>
+# <h1 align="center">WowPad 1.4.2</h1>
 
 
 
@@ -34,6 +34,7 @@ pad and the 2026 Steam Controller. Windows has been tested as well.
 ## Compatibility
 It is currently being tested which addons this is compatible with, but so far
 these addons have been either fixed to work or were working by default:
+- AdiBags
 - AIO
 - Auctionator
 - Bagnon
@@ -43,9 +44,14 @@ these addons have been either fixed to work or were working by default:
 - Postal
 - Questie-335
 
+Other addons' windows are picked up automatically when they have a close
+button (an X). If one is missed, or something that isn't a window gets
+picked up, point the mouse at it and type `/wp window add` or
+`/wp window ignore` (see **Options**).
+
 ## Download
 
-Get **WowPad-1.4.1.zip** from the
+Get **WowPad-1.4.2.zip** from the
 [Releases page](https://github.com/Oddity-git/WoW-Pad/releases) (not the green
 "Code" button: that is the source code). Unzip it and follow **Install** below.
 
@@ -102,7 +108,7 @@ that contains `Wow.exe`.
    happening again. Scan results: [VirusTotal](https://www.virustotal.com/gui/file/bf24eb36348f25fd63cd9022f1059013810329307207b0106cb7827f7964e258). Its SHA-256 is
    `bf24eb36348f25fd63cd9022f1059013810329307207b0106cb7827f7964e258`, so you can check yours is the original.
 4. **Start the game.** A `wowpad.log` appears next to `Wow.exe`; its first
-   line says `wowpad 1.4.0 loaded` (the DLL is unchanged in 1.4.1).
+   line says `wowpad 1.4.0 loaded` (the DLL is unchanged since 1.4.0).
 
 **Updating from an older version?** Replace `version.dll` and the whole
 `WowPad` folder, then restart the game fully (a `/reload` doesn't pick up new
@@ -171,11 +177,12 @@ Options instead of the Xbox names.
 | X | Right-click (use, equip, sell). Quest log: track / untrack the quest |
 | Y tap / hold | Preview gear in the dressing room / compare with what you wear |
 | L3 (in bags) | Item actions: Disenchant (if you can), Destroy (asks first), Cancel (preselected) |
-| LB / RB | Switch between open windows |
+| LB / RB | Switch tabs (Character, Social, Talents, Auction House; spellbook: the spell school tabs). No tabs: switch window |
+| LT / RT | Switch between open windows (the triggers don't switch action sets while a window is open) |
 | B | Close / cancel (Esc menu: Return to Game, option windows: Cancel) |
 
 A hint bar under the window shows what the buttons do for the selected item.
-Works with default bags and with bag addons such as Bagnon. Each open window
+Works with default bags and with bag addons such as Bagnon and AdiBags. Each open window
 remembers its selection, so switching windows or selling an item doesn't send
 you back to the top.
 
@@ -339,6 +346,15 @@ Chat commands: `/wp firsttime`, `/wp options`, `/wp edit`, `/wp scale 0.8`, `/wp
 `/wp blizz`, `/wp crosshair`, `/wp peek`, `/wp sens 0.5`, `/wp interact KEY`,
 `/wp xattack`, `/wp status`, `/wp debug`, `/wp navinfo`.
 
+Addon windows: WowPad treats any open addon frame with a close button (an X)
+as a window. Frames already open when you log in (meters, trackers) are left
+alone until you close and reopen them. To fix a miss, point the mouse at it
+and type:
+- `/wp window add`: count it as a window.
+- `/wp window ignore`: stop treating it as a window (for example a meter you
+  opened mid-session that stops the camera from turning).
+- `/wp window reset` clears both lists; `/wp window` shows them.
+
 
 ## Troubleshooting
 
@@ -358,6 +374,10 @@ Chat commands: `/wp firsttime`, `/wp options`, `/wp edit`, `/wp scale 0.8`, `/wp
   (pointer mode on, then off). That puts it back.
 - **Steam Deck (or another low resolution) with UI scale maxed: the radial menu
   goes partly off the edge:** make it smaller or move it in **Edit bar layout**.
+- **Camera won't turn while an addon frame is up:** WowPad took it for a
+  window. Point the mouse at it and type `/wp window ignore`.
+- **An addon window doesn't respond to the D-pad:** point the mouse at it and
+  type `/wp window add`.
 - **Stuck input / something odd:** hold Back + Start for 1 second (kill
   switch), or touch the mouse/keyboard.
 

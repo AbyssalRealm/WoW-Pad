@@ -157,7 +157,7 @@ local function Build()
     R - 4, -74, function() return WowPadDB.xAttack ~= false end,
     function(v) WowPadDB.xAttack = v; WP.RefreshInteract() end)
   Check("WowPadOptSwapLBRB", "Swap LB / RB targeting",
-    "LB targets enemies and RB targets friends. In menus LB/RB still switch windows as before.",
+    "LB targets enemies and RB targets friends. In menus LB / RB still switch tabs as before.",
     R - 4, -98, function() return WowPadDB.swapBumpers == true end,
     function(v)
       WowPadDB.swapBumpers = v

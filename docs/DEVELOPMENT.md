@@ -282,3 +282,24 @@ With a window open (no trigger held): **Y tap** previews the selected item in th
 - **Movable radials:** `WP.MakeMover(frame, key, label, size)` / `WP.ApplyMoverPos` (Snap.lua) save
   `WowPadDB.movers[key] = {x, y, scale}`, clamped to the screen, mouse wheel 0.5-1.5. The main menu shows in
   Edit bar layout with a full mover box; the ring gets a hub-only handle so its wedges still take drops.
+
+## 1.4.2 notes (addon only; version.dll unchanged from 1.4.0)
+- **Legacy `this` handlers:** `CallScript` (Nav.lua) sets the global `this` around OnEnter / OnLeave calls.
+  DialogUI's reward buttons use `this`, so their tooltip errored silently. DialogUI draws on
+  `DialogueUITooltip`: `OwnedTip` checks it next to GameTooltip for Y preview / compare.
+- **Tabs on LB / RB:** `Nav.Tabs(root)` = `<name>Tab<n>` or `<name>TabButton<n>` (bottom), or the
+  window's entry in `SIDE_TABS` (SpellBookSkillLineTab<n>). Open tab = `selectedTab`, else the checked one,
+  else the disabled one. `Nav.NextTab` wraps; no tabs = `Nav.CycleRoot`. WowPadNavPrev / Next are secure
+  buttons (type "click") so tab clicks don't taint panels.
+- **Triggers in menus:** the header ignores lt / rt while `ctx == "menu"` (set stays 0); combat forces
+  ctx "action" first. The LT / RT ON state buttons get an insecure PreClick hook that calls
+  `Nav.CycleRoot`. The pause branch of the Nav update loop saves `Nav.resume` (root + top) so focus
+  survives a pause.
+- **Generic windows (Core.lua):** `WP.AutoWindows()` scans UIParent's children (max 4x a second) for
+  visible, mouse-enabled frames of at least 120x80 with a close button (`WP.FindCloseButton`: CloseButton
+  field, a button named *Close / *CloseButton, or the UIPanelCloseButton texture, two levels down).
+  Frames that look like windows within 3 s of PLAYER_ENTERING_WORLD are `hud` until hidden once.
+  `WowPadDB.windows.add / ignore` (by frame name) from `/wp window add | ignore | reset`.
+  `Nav.BackTarget` falls back to `WP.FindCloseButton(root)`.
+- **AdiBags:** `WP.BAG_WINDOWS` (AdiBagsContainer1-3), after the panels in priority like the default bags.
+  Item buttons sit on `AdiBagsItemContainer<bag>` (ID = bag), so `Nav.FocusedItem` works unchanged.
